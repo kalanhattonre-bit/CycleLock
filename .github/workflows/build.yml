@@ -1,0 +1,94 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One run per commit: every step of the history gets its own green (or red) result.
+concurrency:
+  group: build-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64 (VST3, tests, pluginval)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DCYCLELOCK_BUILD_TESTS=ON
+
+      - name: Build (Release)
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests (Release)
+        run: build/CycleLockTests_artefacts/Release/CycleLockTests.exe
+
+      # bash, not pwsh: pluginval.exe is a GUI-subsystem program, and PowerShell's call operator
+      # returns without waiting for those, so it never sees the exit code.
+      - name: Validate with pluginval
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip
+          7z x pluginval.zip -opluginval -y > /dev/null
+          ./pluginval/pluginval.exe --strictness-level 10 --validate-in-process --timeout-ms 600000 \
+            --output-dir pluginval-logs --validate "build/CycleLock_artefacts/Release/VST3/CycleLock.vst3"
+
+      - name: Upload pluginval logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pluginval-logs
+          path: pluginval-logs/
+          if-no-files-found: ignore
+
+      - name: Upload VST3
+        uses: actions/upload-artifact@v7
+        with:
+          name: CycleLock-VST3-Windows
+          path: build/CycleLock_artefacts/Release/VST3/
+          if-no-files-found: error
+
+      - name: Zip VST3 for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: Compress-Archive -Path build/CycleLock_artefacts/Release/VST3/CycleLock.vst3 -DestinationPath "CycleLock-${{ github.ref_name }}-Windows-x64.zip"
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create "${{ github.ref_name }}" "CycleLock-${{ github.ref_name }}-Windows-x64.zip" --title "CycleLock ${{ github.ref_name }}" --generate-notes
+
+  linux-tests:
+    name: Linux (tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install JUCE dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfontconfig1-dev libfreetype-dev ladspa-sdk \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCYCLELOCK_BUILD_PLUGIN=OFF -DCYCLELOCK_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests
+        run: build/CycleLockTests_artefacts/Release/CycleLockTests
