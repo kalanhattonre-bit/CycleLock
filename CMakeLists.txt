@@ -26,8 +26,18 @@ FetchContent_MakeAvailable(JUCE)
 
 # Sources shared by the plugin and the test runner, so the tests exercise the shipped code.
 set(CYCLELOCK_SOURCES
+    Source/Parameters.cpp
+    Source/Presets.cpp
+    Source/dsp/PitchTracker.cpp
+    Source/dsp/PitchMarks.cpp
+    Source/dsp/ShiftVoice.cpp
+    Source/dsp/CycleEngine.cpp
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/ui/CycleLookAndFeel.cpp
+    Source/ui/Controls.cpp
+    Source/ui/Display.cpp
+    Source/ui/MainPanel.cpp)
 
 set(CYCLELOCK_DEFINITIONS
     JUCE_WEB_BROWSER=0
